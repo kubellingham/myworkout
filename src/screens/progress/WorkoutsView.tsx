@@ -1,36 +1,21 @@
 import { useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { useStore } from '../lib/store';
-import type { Workout } from '../lib/types';
-import { EFFORTS, summarizeLog } from '../lib/format';
-import { KIND_ICONS } from '../lib/types';
-import { formatDuration, relativeDay, startOfDay } from '../lib/utils';
-import { Sheet } from '../components/ui';
-import { navigate } from '../lib/router';
+import { useStore } from '../../lib/store';
+import type { Workout } from '../../lib/types';
+import { EFFORTS, summarizeLog } from '../../lib/format';
+import { KIND_ICONS } from '../../lib/types';
+import { formatDuration, relativeDay, startOfDay, weekStart } from '../../lib/utils';
+import { weekStreak } from '../../lib/goals';
+import { PR_LABELS, formatMetric } from '../../lib/records';
+import { Sheet } from '../../components/ui';
+import { navigate } from '../../lib/router';
 
 const DAY = 86400000;
 
-export function computeStreak(history: Workout[], now = Date.now()): number {
-  const days = new Set(history.map((w) => startOfDay(w.finishedAt ?? w.startedAt)));
-  let day = startOfDay(now);
-  if (!days.has(day)) day = startOfDay(day - DAY / 2); // today not done yet → count from yesterday
-  let streak = 0;
-  while (days.has(day)) {
-    streak++;
-    day = startOfDay(day - DAY / 2);
-  }
-  return streak;
-}
+const shownPRs = (w: Workout) => (w.prs ?? []).filter((p) => p.kind !== 'volume');
 
-function weekStart(ts: number): number {
-  const d = new Date(startOfDay(ts));
-  const dow = (d.getDay() + 6) % 7; // Monday = 0
-  d.setDate(d.getDate() - dow);
-  return d.getTime();
-}
-
-export function HistoryScreen() {
-  const history = useStore((s) => s.history);
+export function WorkoutsView() {
+  const { history, goal } = useStore(useShallow((s) => ({ history: s.history, goal: s.settings.weeklyGoal })));
   const [openId, setOpenId] = useState<string | null>(null);
   const now = Date.now();
 
@@ -46,8 +31,13 @@ export function HistoryScreen() {
       cur.count++;
       byCat.set(key, cur);
     }
-    return { thisWeek, streak: computeStreak(history, now), total: history.length, balance: [...byCat.values()].sort((a, b) => b.count - a.count) };
-  }, [history, now]);
+    return {
+      thisWeek,
+      streak: weekStreak(history, goal, now),
+      total: history.length,
+      balance: [...byCat.values()].sort((a, b) => b.count - a.count),
+    };
+  }, [history, now, goal]);
 
   // Calendar: 5 weeks, Monday-first, ending with the current week.
   const cal = useMemo(() => {
@@ -67,14 +57,13 @@ export function HistoryScreen() {
   const maxBalance = Math.max(1, ...stats.balance.map((b) => b.count));
 
   return (
-    <div className="screen">
-      <header className="page-head">
-        <h1>History</h1>
-      </header>
-
+    <>
       <div className="stats">
         <div className="stat">
-          <div className="stat-num">{stats.thisWeek}</div>
+          <div className="stat-num">
+            {stats.thisWeek}
+            <small>/{goal}</small>
+          </div>
           <div className="stat-label">this week</div>
         </div>
         <div className="stat">
@@ -82,7 +71,7 @@ export function HistoryScreen() {
             {stats.streak}
             {stats.streak >= 2 && '🔥'}
           </div>
-          <div className="stat-label">day streak</div>
+          <div className="stat-label">week streak</div>
         </div>
         <div className="stat">
           <div className="stat-num">{stats.total}</div>
@@ -153,19 +142,21 @@ export function HistoryScreen() {
       )}
 
       <WorkoutDetail workout={opened} onClose={() => setOpenId(null)} />
-    </div>
+    </>
   );
 }
 
 function HistoryRow({ w, onOpen }: { w: Workout; onOpen: () => void }) {
   const effort = EFFORTS.find((e) => e.value === w.effort);
   const done = w.exercises.filter((e) => e.done).length;
+  const prs = shownPRs(w).length;
   return (
     <button className="h-row" onClick={onOpen} style={{ '--c': w.categoryColor } as React.CSSProperties}>
       <span className="h-emoji">{w.categoryEmoji}</span>
       <span className="h-body">
         <span className="h-title">
           {w.categoryName} {w.spun && <span className="badge">🎡</span>}
+          {prs > 0 && <span className="badge gold">🏆 {prs}</span>}
         </span>
         <span className="h-sub">
           {relativeDay(w.finishedAt ?? w.startedAt)} · {w.finishedAt ? formatDuration(w.finishedAt - w.startedAt) : '—'} · {done}/
@@ -233,6 +224,16 @@ function WorkoutDetail({ workout, onClose }: { workout: Workout | null; onClose:
       {effort && (
         <div className="detail-effort">
           <span>{effort.emoji}</span> {effort.label}
+        </div>
+      )}
+      {shownPRs(workout).length > 0 && (
+        <div className="detail-prs">
+          {shownPRs(workout).map((p) => (
+            <div key={p.key + p.kind} className="detail-pr">
+              🏆 <strong>{p.name}</strong> · {PR_LABELS[p.kind]} {formatMetric(p.kind, p.value, settings)}
+              <small> (was {formatMetric(p.kind, p.previous, settings)})</small>
+            </div>
+          ))}
         </div>
       )}
       <ul className="detail-list">

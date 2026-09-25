@@ -6,7 +6,7 @@ import { KIND_ICONS, KIND_LABELS } from '../lib/types';
 import { CATEGORY_COLORS, defaultsForKind } from '../lib/seed';
 import { summarizeExercise } from '../lib/format';
 import { navigate } from '../lib/router';
-import { NumberField, Segmented, Sheet, Stepper, Switch } from '../components/ui';
+import { DurationInput, NumberField, Segmented, Sheet, Stepper, Switch } from '../components/ui';
 import { IntervalEditor } from '../components/IntervalEditor';
 
 export function LibraryScreen({ categoryId }: { categoryId?: string }) {
@@ -327,6 +327,10 @@ function ExerciseSheet({
             <span>Weight ({settings.weightUnit})</span>
             <NumberField value={d.weight} decimal placeholder="optional" onChange={(v) => setD({ weight: v ?? undefined })} />
           </label>
+          <label>
+            <span>Rest between sets</span>
+            <DurationInput value={d.rest ?? settings.restSeconds} onChange={(v) => setD({ rest: v })} />
+          </label>
         </div>
       )}
       {draft.kind === 'cardio' && (
@@ -402,6 +406,42 @@ function SettingsSection() {
             <span className="lr-title">Exercises per workout</span>
           </span>
           <Stepper value={settings.exercisesPerWorkout} min={1} max={12} onChange={(v) => updateSettings({ exercisesPerWorkout: v })} />
+        </div>
+        <div className="list-row static">
+          <span className="lr-body">
+            <span className="lr-title">Weekly goal</span>
+            <span className="lr-sub">Workouts per week, shown as a ring on the Spin screen</span>
+          </span>
+          <Stepper value={settings.weeklyGoal} min={1} max={14} onChange={(v) => updateSettings({ weeklyGoal: v })} />
+        </div>
+        <div className="list-row static">
+          <span className="lr-body">
+            <span className="lr-title">Rest timer</span>
+            <span className="lr-sub">Starts when you tick a set</span>
+          </span>
+          <Switch checked={settings.restTimer} onChange={(v) => updateSettings({ restTimer: v })} label="Rest timer" />
+        </div>
+        {settings.restTimer && (
+          <div className="list-row static">
+            <span className="lr-body">
+              <span className="lr-title">Default rest</span>
+              <span className="lr-sub">Exercises can override this in their settings</span>
+            </span>
+            <DurationInput value={settings.restSeconds} onChange={(v) => updateSettings({ restSeconds: Math.max(5, v) })} />
+          </div>
+        )}
+        <div className="list-row static">
+          <span className="lr-body">
+            <span className="lr-title">Height (cm)</span>
+            <span className="lr-sub">Used for BMI on the Body page</span>
+          </span>
+          <NumberField
+            className="short"
+            value={settings.heightCm}
+            decimal
+            placeholder="cm"
+            onChange={(v) => updateSettings({ heightCm: v && v > 50 && v < 260 ? v : v == null ? null : settings.heightCm })}
+          />
         </div>
         <div className="list-row static">
           <span className="lr-body">

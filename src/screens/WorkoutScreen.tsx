@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import confetti from 'canvas-confetti';
 import { lastLogFor, useStore } from '../lib/store';
-import type { ExerciseKind, ExerciseLog, IntervalConfig, Settings } from '../lib/types';
+import type { ExerciseKind, ExerciseLog, IntervalConfig, PR, SetLog, Settings } from '../lib/types';
 import { KIND_ICONS, KIND_LABELS } from '../lib/types';
 import { formatClock, intervalTotalSeconds, uid } from '../lib/utils';
 import { EFFORTS, summarizeLog } from '../lib/format';
@@ -11,7 +11,11 @@ import { navigate } from '../lib/router';
 import { NumberField, Segmented, Sheet, Switch } from '../components/ui';
 import { IntervalEditor } from '../components/IntervalEditor';
 import { IntervalTimer } from '../components/IntervalTimer';
-import { vibrate } from '../lib/feedback';
+import { vibrate, winSound } from '../lib/feedback';
+import { useRest } from '../lib/rest';
+import { RestBar } from '../components/RestBar';
+import { ExerciseProgressSheet } from '../components/ExerciseProgressSheet';
+import { PR_LABELS, bestsFor, detectPRs, exerciseKey, formatMetric } from '../lib/records';
 
 export function WorkoutScreen() {
   const active = useStore((s) => s.active);
@@ -58,9 +62,11 @@ function useNow(intervalMs = 1000) {
 }
 
 function ActiveWorkout() {
-  const { active, discardWorkout, finishWorkout, addCustomToActive } = useStore(
+  const { active, history, settings, discardWorkout, finishWorkout, addCustomToActive } = useStore(
     useShallow((s) => ({
       active: s.active!,
+      history: s.history,
+      settings: s.settings,
       discardWorkout: s.discardWorkout,
       finishWorkout: s.finishWorkout,
       addCustomToActive: s.addCustomToActive,
@@ -71,6 +77,50 @@ function ActiveWorkout() {
   const [finishing, setFinishing] = useState(false);
   const doneCount = active.exercises.filter((e) => e.done).length;
   const total = active.exercises.length;
+
+  // Personal records, live: compare each exercise against every earlier workout.
+  const livePRs = useMemo(() => {
+    const map = new Map<string, PR[]>();
+    for (const log of active.exercises) {
+      const prs = detectPRs(log, bestsFor(history, exerciseKey(log)));
+      if (prs.length) map.set(log.id, prs);
+    }
+    return map;
+  }, [active.exercises, history]);
+
+  const prCount = [...livePRs.values()].flat().filter((p) => p.kind !== 'volume').length;
+
+  const seenPRs = useRef<Set<string> | null>(null);
+  const [prToast, setPrToast] = useState<PR | null>(null);
+  useEffect(() => {
+    const found = [...livePRs.entries()].flatMap(([logId, prs]) =>
+      prs.filter((p) => p.kind !== 'volume').map((p) => ({ id: `${logId}:${p.kind}:${p.value}`, p })),
+    );
+    // Don't celebrate records that already existed when the screen opened.
+    if (seenPRs.current == null) {
+      seenPRs.current = new Set(found.map((f) => f.id));
+      return;
+    }
+    const fresh = found.filter((f) => !seenPRs.current!.has(f.id));
+    fresh.forEach((f) => seenPRs.current!.add(f.id));
+    if (fresh.length === 0) return;
+    setPrToast(fresh[0].p);
+    winSound();
+    confetti({
+      particleCount: 120,
+      spread: 100,
+      origin: { y: 0.25 },
+      colors: ['#ffd23f', '#ffb020', '#ffffff'],
+      disableForReducedMotion: true,
+    });
+  }, [livePRs]);
+
+  // Separate from the effect above: typing in a set re-runs that one and must not cancel the hide timer.
+  useEffect(() => {
+    if (!prToast) return;
+    const t = setTimeout(() => setPrToast(null), 3800);
+    return () => clearTimeout(t);
+  }, [prToast]);
 
   return (
     <div className="screen workout-screen">
@@ -90,7 +140,14 @@ function ActiveWorkout() {
 
       <div className="ex-list">
         {active.exercises.map((log, i) => (
-          <ExerciseCard key={log.id} log={log} index={i} count={total} />
+          <ExerciseCard
+            key={log.id}
+            log={log}
+            index={i}
+            count={total}
+            nextName={active.exercises.slice(i + 1).find((e) => !e.done)?.name}
+            prs={livePRs.get(log.id) ?? []}
+          />
         ))}
       </div>
 
@@ -98,35 +155,69 @@ function ActiveWorkout() {
         + Add exercise
       </button>
 
-      <div className="finish-bar">
-        <button
-          className="btn danger-ghost"
-          onClick={() => window.confirm('Discard this workout? Nothing will be saved.') && discardWorkout()}
-        >
-          Discard
-        </button>
-        <button className="btn primary" onClick={() => setFinishing(true)}>
-          Finish workout ✓
-        </button>
+      <div className="workout-dock">
+        <RestBar />
+        <div className="finish-bar">
+          <button
+            className="btn danger-ghost"
+            onClick={() => {
+              if (!window.confirm('Discard this workout? Nothing will be saved.')) return;
+              useRest.getState().stop();
+              discardWorkout();
+            }}
+          >
+            Discard
+          </button>
+          <button className="btn primary" onClick={() => setFinishing(true)}>
+            Finish workout ✓
+          </button>
+        </div>
       </div>
+
+      {prToast && (
+        <div className="pr-toast pop-in" role="status">
+          <span className="pr-trophy">🏆</span>
+          <span>
+            <strong>New PR!</strong> {prToast.name}
+            <br />
+            {PR_LABELS[prToast.kind]}: {formatMetric(prToast.kind, prToast.value, settings)}{' '}
+            <small>(was {formatMetric(prToast.kind, prToast.previous, settings)})</small>
+          </span>
+        </div>
+      )}
 
       <AddExerciseSheet open={adding} onClose={() => setAdding(false)} onAddCustom={addCustomToActive} />
       <FinishSheet
         open={finishing}
         onClose={() => setFinishing(false)}
         onSave={(effort, notes) => {
+          useRest.getState().stop();
           finishWorkout(effort, notes);
           setFinishing(false);
           confetti({ particleCount: 140, spread: 90, origin: { y: 0.7 }, disableForReducedMotion: true });
-          navigate('history');
+          navigate('progress');
         }}
-        summary={`${doneCount}/${total} exercises · ${formatClock((now - active.startedAt) / 1000)}`}
+        summary={`${doneCount}/${total} exercises · ${formatClock((now - active.startedAt) / 1000)}${
+          prCount ? ` · 🏆 ${prCount} new record${prCount === 1 ? '' : 's'}` : ''
+        }`}
       />
     </div>
   );
 }
 
-function ExerciseCard({ log, index, count }: { log: ExerciseLog; index: number; count: number }) {
+function ExerciseCard({
+  log,
+  index,
+  count,
+  nextName,
+  prs,
+}: {
+  log: ExerciseLog;
+  index: number;
+  count: number;
+  nextName?: string;
+  prs: PR[];
+}) {
   const { update, remove, move, settings, history, exercises, updateExercise } = useStore(
     useShallow((s) => ({
       update: s.updateActiveExercise,
@@ -142,9 +233,19 @@ function ExerciseCard({ log, index, count }: { log: ExerciseLog; index: number; 
   const [menu, setMenu] = useState(false);
   const [editingInterval, setEditingInterval] = useState(false);
   const [timing, setTiming] = useState(false);
+  const [showProgress, setShowProgress] = useState(false);
+  const startRest = useRest((s) => s.start);
   const patch = (p: Partial<ExerciseLog>) => update(log.id, p);
   const last = log.exerciseId ? lastLogFor(history, log.exerciseId) : null;
   const libraryExercise = log.exerciseId ? exercises.find((e) => e.id === log.exerciseId) : undefined;
+
+  const onSetDone = (sets: SetLog[]) => {
+    if (!settings.restTimer) return;
+    const nextSet = sets.findIndex((s) => !s.done);
+    if (nextSet === -1 && !nextName) return; // that was the last set of the workout
+    const label = nextSet === -1 ? `Next: ${nextName}` : `Next: set ${nextSet + 1} of ${log.name}`;
+    startRest(libraryExercise?.defaults.rest ?? settings.restSeconds, label);
+  };
 
   const markDone = (done: boolean) => {
     patch({ done });
@@ -168,7 +269,10 @@ function ExerciseCard({ log, index, count }: { log: ExerciseLog; index: number; 
           ✓
         </button>
         <div className="ex-title">
-          <div className="ex-name">{log.name}</div>
+          <div className="ex-name">
+            {log.name}
+            {prs.some((p) => p.kind !== 'volume') && <span className="pr-badge">🏆 PR</span>}
+          </div>
           <div className="ex-sub">
             {KIND_ICONS[log.kind]} {open ? KIND_LABELS[log.kind] : summarizeLog(log, settings)}
           </div>
@@ -187,7 +291,16 @@ function ExerciseCard({ log, index, count }: { log: ExerciseLog; index: number; 
 
       {open && (
         <div className="ex-body">
-          {log.kind === 'strength' && <StrengthBody log={log} settings={settings} last={last} onChange={patch} onAllDone={() => markDone(true)} />}
+          {log.kind === 'strength' && (
+            <StrengthBody
+              log={log}
+              settings={settings}
+              last={last}
+              onChange={patch}
+              onSetDone={onSetDone}
+              onAllDone={() => markDone(true)}
+            />
+          )}
           {log.kind === 'cardio' && (
             <div className="cardio">
               <label>
@@ -242,6 +355,7 @@ function ExerciseCard({ log, index, count }: { log: ExerciseLog; index: number; 
 
       <Sheet open={menu} onClose={() => setMenu(false)} title={log.name}>
         <div className="menu-list">
+          <button onClick={() => (setShowProgress(true), setMenu(false))}>📈 See progress</button>
           <button disabled={index === 0} onClick={() => (move(log.id, -1), setMenu(false))}>
             ↑ Move up
           </button>
@@ -297,6 +411,10 @@ function ExerciseCard({ log, index, count }: { log: ExerciseLog; index: number; 
         />
       )}
 
+      {showProgress && (
+        <ExerciseProgressSheet exerciseKey={exerciseKey(log)} fallbackName={log.name} onClose={() => setShowProgress(false)} />
+      )}
+
       {timing && log.interval && (
         <IntervalTimer
           title={log.name}
@@ -317,12 +435,14 @@ function StrengthBody({
   settings,
   last,
   onChange,
+  onSetDone,
   onAllDone,
 }: {
   log: ExerciseLog;
   settings: Settings;
   last: ExerciseLog | null;
   onChange: (p: Partial<ExerciseLog>) => void;
+  onSetDone: (sets: SetLog[]) => void;
   onAllDone: () => void;
 }) {
   const sets = log.sets ?? [];
@@ -350,7 +470,10 @@ function StrengthBody({
             aria-label={`Set ${i + 1} done`}
             onClick={() => {
               const next = setAt(i, { done: !s.done });
-              if (!s.done) vibrate(20);
+              if (!s.done) {
+                vibrate(20);
+                onSetDone(next);
+              }
               if (next.length > 0 && next.every((x) => x.done)) onAllDone();
             }}
           >

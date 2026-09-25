@@ -20,6 +20,7 @@ export interface ExerciseDefaults {
   minutes?: number;
   distance?: number;
   interval?: IntervalConfig;
+  rest?: number; // seconds between sets (strength)
 }
 
 export interface Exercise {
@@ -70,6 +71,25 @@ export interface Workout {
   effort: number | null; // 1-5
   notes: string;
   spun: boolean;
+  prs?: PR[];
+}
+
+export type PRKind = 'weight' | 'reps' | 'volume' | 'distance' | 'minutes';
+
+export interface PR {
+  key: string; // exercise key (id, or name for custom exercises)
+  name: string;
+  kind: PRKind;
+  value: number;
+  previous: number;
+}
+
+/** One weigh-in. Stored in kg and cm regardless of display units. */
+export interface BodyEntry {
+  id: string;
+  date: number;
+  weight: number | null;
+  waist: number | null;
 }
 
 export interface Settings {
@@ -79,6 +99,10 @@ export interface Settings {
   avoidRepeat: boolean;
   weightUnit: 'kg' | 'lb';
   distanceUnit: 'km' | 'mi';
+  heightCm: number | null;
+  weeklyGoal: number;
+  restTimer: boolean;
+  restSeconds: number;
 }
 
 export const KIND_LABELS: Record<ExerciseKind, string> = {

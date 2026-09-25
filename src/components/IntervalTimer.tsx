@@ -4,6 +4,7 @@ import type { IntervalConfig } from '../lib/types';
 import { buildPhases, phaseIndexAt, roundsCompleted, totalOf, type Phase } from '../lib/timer';
 import { formatClock } from '../lib/utils';
 import { countdownBeep, doneFanfare, phaseBeep, unlockAudio } from '../lib/feedback';
+import { useWakeLock } from '../lib/useWakeLock';
 
 const STEP_COLORS = ['#ff5a36', '#18b373', '#2f8cff', '#9b5cff'];
 
@@ -13,8 +14,6 @@ function phaseColor(p: Phase | undefined): string {
   if (p.kind === 'warmup' || p.kind === 'cooldown') return '#4b43b8';
   return STEP_COLORS[p.stepIndex % STEP_COLORS.length];
 }
-
-type WakeLockSentinelLike = { release: () => Promise<void> };
 
 export function IntervalTimer({
   title,
@@ -33,7 +32,6 @@ export function IntervalTimer({
   const lastPhaseRef = useRef(0);
   const lastBeepRef = useRef<number | null>(null);
   const finishedRef = useRef(false);
-  const wakeRef = useRef<WakeLockSentinelLike | null>(null);
 
   const running = sinceRef.current != null;
   const elapsedMs = accumRef.current + (sinceRef.current != null ? Date.now() - sinceRef.current : 0);
@@ -55,24 +53,7 @@ export function IntervalTimer({
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  // Keep the screen awake while the timer is open.
-  useEffect(() => {
-    const nav = navigator as Navigator & { wakeLock?: { request: (t: 'screen') => Promise<WakeLockSentinelLike> } };
-    const request = async () => {
-      try {
-        if (nav.wakeLock && document.visibilityState === 'visible') wakeRef.current = await nav.wakeLock.request('screen');
-      } catch {
-        /* ignore */
-      }
-    };
-    void request();
-    const onVis = () => document.visibilityState === 'visible' && void request();
-    document.addEventListener('visibilitychange', onVis);
-    return () => {
-      document.removeEventListener('visibilitychange', onVis);
-      void wakeRef.current?.release().catch(() => {});
-    };
-  }, []);
+  useWakeLock(true);
 
   // Sounds: 3-2-1 countdown and a chime on every phase change.
   useEffect(() => {

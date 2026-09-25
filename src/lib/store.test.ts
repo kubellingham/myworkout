@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useStore } from './store';
-import { computeStreak } from '../screens/HistoryScreen';
 
 describe('store', () => {
   beforeEach(() => useStore.getState().resetAll());
@@ -47,16 +46,5 @@ describe('store', () => {
     useStore.getState().importData(json);
     expect(useStore.getState().settings.weightUnit).toBe('lb');
     expect(() => useStore.getState().importData('{"nope":1}')).toThrow();
-  });
-});
-
-describe('streak', () => {
-  const DAY = 86400000;
-  const w = (ts: number) => ({ startedAt: ts, finishedAt: ts }) as never;
-  it('counts consecutive days, allowing today to be pending', () => {
-    const now = new Date(2026, 8, 25, 12).getTime();
-    expect(computeStreak([], now)).toBe(0);
-    expect(computeStreak([w(now - DAY), w(now - 2 * DAY)], now)).toBe(2);
-    expect(computeStreak([w(now), w(now - DAY), w(now - 3 * DAY)], now)).toBe(2);
   });
 });

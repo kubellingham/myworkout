@@ -62,6 +62,21 @@ export function startOfDay(ts: number): number {
   return d.getTime();
 }
 
+/** Monday 00:00 of the week containing ts. */
+export function weekStart(ts: number): number {
+  const d = new Date(startOfDay(ts));
+  const dow = (d.getDay() + 6) % 7; // Monday = 0
+  d.setDate(d.getDate() - dow);
+  return d.getTime();
+}
+
+/** Same as weekStart but for the week `offset` weeks before (negative) or after. */
+export function shiftWeek(weekStartTs: number, offset: number): number {
+  const d = new Date(weekStartTs);
+  d.setDate(d.getDate() + offset * 7);
+  return d.getTime();
+}
+
 export function daysBetween(a: number, b: number): number {
   return Math.round((startOfDay(b) - startOfDay(a)) / DAY);
 }

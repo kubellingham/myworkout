@@ -4,7 +4,7 @@ import { useStore } from './lib/store';
 import { unlockAudio } from './lib/feedback';
 import { SpinScreen } from './screens/SpinScreen';
 import { WorkoutScreen } from './screens/WorkoutScreen';
-import { HistoryScreen } from './screens/HistoryScreen';
+import { ProgressScreen } from './screens/ProgressScreen';
 import { LibraryScreen } from './screens/LibraryScreen';
 
 const TABS = [
@@ -29,12 +29,13 @@ const TABS = [
     ),
   },
   {
-    id: 'history',
-    label: 'History',
+    id: 'progress',
+    label: 'Progress',
     icon: (
       <svg viewBox="0 0 24 24" aria-hidden>
-        <rect x="3.5" y="5" width="17" height="15.5" rx="3" />
-        <path d="M3.5 10h17M8 3v4M16 3v4" />
+        <path d="M3.5 19.5h17" />
+        <path d="M4.5 15.5l5-5 3.5 3.5 6.5-7" />
+        <path d="M15.5 7h4v4" />
       </svg>
     ),
   },
@@ -52,7 +53,9 @@ const TABS = [
 export default function App() {
   const route = useRoute();
   const hasActive = useStore((s) => !!s.active);
-  const tab = TABS.some((t) => t.id === route[0]) ? route[0] : 'spin';
+  // Old links to #/history land on the Progress tab.
+  const first = route[0] === 'history' ? 'progress' : route[0];
+  const tab = TABS.some((t) => t.id === first) ? first : 'spin';
 
   // iOS only allows audio after a user gesture; unlock on the first touch.
   useEffect(() => {
@@ -69,7 +72,7 @@ export default function App() {
       <main>
         {tab === 'spin' && <SpinScreen />}
         {tab === 'workout' && <WorkoutScreen />}
-        {tab === 'history' && <HistoryScreen />}
+        {tab === 'progress' && <ProgressScreen view={route[1]} />}
         {tab === 'library' && <LibraryScreen categoryId={route[1]} />}
       </main>
       <nav className="tabbar">

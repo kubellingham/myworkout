@@ -1,8 +1,9 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Category, Exercise, ExerciseLog, Settings, Workout } from './types';
+import type { BodyEntry, Category, Exercise, ExerciseLog, Settings, Workout } from './types';
 import { DEFAULT_SETTINGS, createSeed } from './seed';
-import { cloneInterval, uid } from './utils';
+import { cloneInterval, startOfDay, uid } from './utils';
+import { workoutPRs } from './records';
 
 export interface SpinPlan {
   categoryId: string | null;
@@ -16,6 +17,7 @@ interface Data {
   active: Workout | null;
   settings: Settings;
   spin: SpinPlan;
+  body: BodyEntry[]; // newest first
 }
 
 interface Actions {
@@ -44,6 +46,9 @@ interface Actions {
   discardWorkout: () => void;
   repeatWorkout: (workoutId: string) => void;
   deleteWorkout: (id: string) => void;
+  // body
+  saveBodyEntry: (entry: Omit<BodyEntry, 'id'>, id?: string) => void;
+  deleteBodyEntry: (id: string) => void;
   // data
   importData: (json: string) => void;
   resetAll: () => void;
@@ -59,6 +64,7 @@ function initialData(): Data {
     active: null,
     settings: { ...DEFAULT_SETTINGS },
     spin: { categoryId: null, picks: [] },
+    body: [],
   };
 }
 
@@ -211,6 +217,7 @@ export const useStore = create<Store>()(
         const { active } = get();
         if (!active) return null;
         const done: Workout = { ...active, finishedAt: Date.now(), effort, notes };
+        done.prs = workoutPRs(done, get().history);
         set((s) => ({ history: [done, ...s.history], active: null }));
         return done.id;
       },
@@ -242,6 +249,16 @@ export const useStore = create<Store>()(
       },
       deleteWorkout: (id) => set((s) => ({ history: s.history.filter((w) => w.id !== id) })),
 
+      saveBodyEntry: (entry, id) =>
+        set((s) => {
+          // One weigh-in per day: editing or logging again on the same day replaces it.
+          const day = startOfDay(entry.date);
+          const rest = s.body.filter((b) => b.id !== id && startOfDay(b.date) !== day);
+          const next = [...rest, { ...entry, id: id ?? uid() }].sort((a, b) => b.date - a.date);
+          return { body: next };
+        }),
+      deleteBodyEntry: (id) => set((s) => ({ body: s.body.filter((b) => b.id !== id) })),
+
       importData: (json) => {
         const parsed = JSON.parse(json);
         const data = parsed?.state ?? parsed;
@@ -255,6 +272,7 @@ export const useStore = create<Store>()(
           active: data.active ?? null,
           settings: { ...DEFAULT_SETTINGS, ...(data.settings ?? {}) },
           spin: { categoryId: null, picks: [] },
+          body: Array.isArray(data.body) ? data.body : [],
         });
       },
       resetAll: () => set(initialData()),
@@ -269,6 +287,7 @@ export const useStore = create<Store>()(
         active: s.active,
         settings: s.settings,
         spin: s.spin,
+        body: s.body,
       }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<Data>;
@@ -279,9 +298,9 @@ export const useStore = create<Store>()(
 );
 
 export function exportData(): string {
-  const { categories, exercises, history, active, settings } = useStore.getState();
+  const { categories, exercises, history, active, settings, body } = useStore.getState();
   return JSON.stringify(
-    { app: 'spin-and-sweat', version: 1, exportedAt: new Date().toISOString(), categories, exercises, history, active, settings },
+    { app: 'spin-and-sweat', version: 1, exportedAt: new Date().toISOString(), categories, exercises, history, active, settings, body },
     null,
     2,
   );

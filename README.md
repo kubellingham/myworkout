@@ -21,11 +21,20 @@ A mobile-first workout app for people who don't plan their workouts. Spin a priz
   beeps a 3-2-1 countdown, can pause, skip and go back, and keeps the screen awake.
   Edit the times during a workout and tick "Remember for next time".
 - **Finish.** Rate how the workout felt (1–5) and add notes.
-- **History.** Workouts this week, your day streak, a 5-week calendar, type balance over the
-  last 30 days, and "Do it again" to repeat a past workout.
+- **Rest timer.** Tick a set and a countdown starts (90 s by default, and each exercise can have
+  its own). It has −15 / +15 / skip buttons and a 3-2-1 beep.
+- **Personal records.** You get confetti and a 🏆 when you beat your heaviest weight, your most reps
+  (bodyweight), or your longest distance or time. Each exercise also has a progress chart.
+- **Weekly goal.** A ring on the Spin screen shows e.g. "2 of 3 this week", plus your week streak.
+- **Progress tab.**
+  - *Workouts:* this week vs goal, week streak, a 5-week calendar, type balance, and "Do it again".
+  - *Records:* your latest PRs and your best for each exercise.
+  - *Body:* weigh-ins with a 7-day average trend chart, BMI (from your height), and an optional
+    waist measurement with the waist-to-height guideline.
 - **Library.** Add or edit workout types (name, emoji, colour) and exercises, and toggle anything
   on or off the wheel.
-- **Settings.** Exercises per workout, rest yesterday's type, sound, vibration, kg/lb, km/mi.
+- **Settings.** Exercises per workout, weekly goal, rest timer, height, rest yesterday's type, sound,
+  vibration, kg/lb, km/mi.
 - **Your data stays on your phone** (localStorage). Use Library → Backup to export and import a JSON file.
 - **Installable PWA.** It works offline. On iPhone, open it in Safari, tap Share, then *Add to Home Screen*.
 

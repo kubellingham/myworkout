@@ -8,6 +8,10 @@ export const DEFAULT_SETTINGS: Settings = {
   avoidRepeat: true,
   weightUnit: 'kg',
   distanceUnit: 'km',
+  heightCm: null,
+  weeklyGoal: 3,
+  restTimer: true,
+  restSeconds: 90,
 };
 
 export const CATEGORY_COLORS = [

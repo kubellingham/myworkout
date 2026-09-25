@@ -7,6 +7,7 @@ import { summarizeExercise } from '../lib/format';
 import { KIND_ICONS } from '../lib/types';
 import { daysBetween } from '../lib/utils';
 import { navigate } from '../lib/router';
+import { WeeklyGoal } from '../components/WeeklyGoal';
 
 export function SpinScreen() {
   const spinCategoryId = useStore((s) => s.spin.categoryId);
@@ -82,6 +83,7 @@ function TypeStage() {
 
   return (
     <>
+      <WeeklyGoal />
       <header className="spin-head">
         <div className="eyebrow">Step 1 of 2</div>
         <h1>What are we training today?</h1>
