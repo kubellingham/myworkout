@@ -1,9 +1,13 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { BodyEntry, Category, Exercise, ExerciseLog, Settings, Workout } from './types';
-import { DEFAULT_SETTINGS, createSeed } from './seed';
+import { DEFAULT_SETTINGS, LIBRARY_VERSION, createSeed, upgradeLibrary } from './seed';
 import { cloneInterval, startOfDay, uid } from './utils';
 import { workoutPRs } from './records';
+
+/** Spin "category" meaning every exercise that's on the wheel, whatever its group. */
+export const MIX_ID = '__mix__';
+export const MIX = { name: 'Mix', emoji: '🎲', color: '#c6f432' };
 
 export interface SpinPlan {
   categoryId: string | null;
@@ -28,6 +32,7 @@ interface Actions {
   addExercise: (e: Omit<Exercise, 'id'>) => string;
   updateExercise: (id: string, patch: Partial<Exercise>) => void;
   deleteExercise: (id: string) => void;
+  setExercisesInWheel: (ids: string[], inWheel: boolean) => void;
   updateSettings: (patch: Partial<Settings>) => void;
   // spin
   setSpinCategory: (id: string | null) => void;
@@ -109,7 +114,11 @@ export function makeLog(ex: Exercise, history: Workout[]): ExerciseLog {
   return log;
 }
 
-function newWorkout(category: Category | undefined, exercises: ExerciseLog[], spun: boolean): Workout {
+function newWorkout(
+  category: Pick<Category, 'name' | 'emoji' | 'color'> & { id: string | null } | undefined,
+  exercises: ExerciseLog[],
+  spun: boolean,
+): Workout {
   return {
     id: uid(),
     startedAt: Date.now(),
@@ -155,6 +164,10 @@ export const useStore = create<Store>()(
           exercises: s.exercises.filter((e) => e.id !== id),
           spin: { ...s.spin, picks: s.spin.picks.filter((p) => p !== id) },
         })),
+      setExercisesInWheel: (ids, inWheel) => {
+        const pick = new Set(ids);
+        set((s) => ({ exercises: s.exercises.map((e) => (pick.has(e.id) ? { ...e, inWheel } : e)) }));
+      },
       updateSettings: (patch) => set((s) => ({ settings: { ...s.settings, ...patch } })),
 
       setSpinCategory: (id) => set({ spin: { categoryId: id, picks: [] } }),
@@ -167,7 +180,7 @@ export const useStore = create<Store>()(
 
       startWorkout: (categoryId, exerciseIds, spun) => {
         const { categories, exercises, history } = get();
-        const category = categories.find((c) => c.id === categoryId);
+        const category = categoryId === MIX_ID ? { ...MIX, id: null } : categories.find((c) => c.id === categoryId);
         const logs = exerciseIds
           .map((id) => exercises.find((e) => e.id === id))
           .filter((e): e is Exercise => !!e)
@@ -267,7 +280,7 @@ export const useStore = create<Store>()(
         }
         set({
           categories: data.categories,
-          exercises: data.exercises,
+          exercises: upgradeLibrary(data.categories, data.exercises, data.libraryVersion ?? 1),
           history: data.history,
           active: data.active ?? null,
           settings: { ...DEFAULT_SETTINGS, ...(data.settings ?? {}) },
@@ -279,7 +292,13 @@ export const useStore = create<Store>()(
     }),
     {
       name: 'myworkout-v1',
-      version: 1,
+      // v2: bigger built-in exercise library.
+      version: LIBRARY_VERSION,
+      migrate: (persisted, version) => {
+        const p = persisted as Partial<Data>;
+        if (p?.categories && p.exercises) p.exercises = upgradeLibrary(p.categories, p.exercises, version);
+        return p as Data;
+      },
       partialize: (s) => ({
         categories: s.categories,
         exercises: s.exercises,
@@ -300,7 +319,18 @@ export const useStore = create<Store>()(
 export function exportData(): string {
   const { categories, exercises, history, active, settings, body } = useStore.getState();
   return JSON.stringify(
-    { app: 'spin-and-sweat', version: 1, exportedAt: new Date().toISOString(), categories, exercises, history, active, settings, body },
+    {
+      app: 'spin-and-sweat',
+      version: 1,
+      libraryVersion: LIBRARY_VERSION,
+      exportedAt: new Date().toISOString(),
+      categories,
+      exercises,
+      history,
+      active,
+      settings,
+      body,
+    },
     null,
     2,
   );

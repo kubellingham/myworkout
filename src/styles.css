@@ -2370,3 +2370,55 @@ select.text-input {
   width: fit-content;
   margin: 10px auto 0;
 }
+
+/* ---------- Wheel readout & Mix ---------- */
+
+.wheel-readout {
+  --c: var(--accent);
+  align-self: center;
+  max-width: 100%;
+  margin: 4px auto -6px;
+  padding: 6px 16px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--c) 18%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--c) 60%, transparent);
+  font-weight: 700;
+  font-size: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+  min-height: 34px;
+}
+.wheel-readout.off {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+.wheel-readout.win {
+  animation: readout-win 0.6s cubic-bezier(0.2, 1.6, 0.4, 1);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 35%, transparent);
+}
+@keyframes readout-win {
+  from {
+    transform: scale(0.85);
+  }
+}
+.mix-btn {
+  width: 100%;
+  border-color: rgba(198, 244, 50, 0.35);
+}
+
+.swatch.small {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  font-size: 16px;
+}
+.bulk-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.bulk-row .muted {
+  flex: 1;
+}

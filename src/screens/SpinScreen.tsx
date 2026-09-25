@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { useStore } from '../lib/store';
+import { MIX, MIX_ID, useStore } from '../lib/store';
 import { Wheel, type WheelHandle, type WheelItem } from '../components/Wheel';
 import { Stepper } from '../components/ui';
 import { summarizeExercise } from '../lib/format';
@@ -66,6 +66,7 @@ function TypeStage() {
       : undefined;
 
   const disabledIds = [...empty, ...(resting ? [resting.id] : [])];
+  const mixCount = exercises.filter((e) => e.inWheel && cats.some((c) => c.id === e.categoryId)).length;
   const canSpin = items.length - new Set(disabledIds).size > 0;
 
   if (items.length === 0) {
@@ -124,6 +125,9 @@ function TypeStage() {
               {spinning ? 'Spinning…' : '🎡 Spin the wheel'}
             </button>
             <p className="hint">{spinning ? 'Fingers crossed 🤞' : 'Tap SPIN, or flick the wheel with your finger'}</p>
+            <button className="btn ghost mix-btn" disabled={spinning || mixCount === 0} onClick={() => setSpinCategory(MIX_ID)}>
+              🎲 Mix it up: spin from all {mixCount} exercises
+            </button>
           </>
         )}
       </div>
@@ -177,9 +181,15 @@ function ExerciseStage({ categoryId }: { categoryId: string }) {
   const respinRef = useRef<number | null>(null);
   const [fresh, setFresh] = useState<string | null>(null);
 
-  const category = s.categories.find((c) => c.id === categoryId);
-  const pool = s.exercises.filter((e) => e.categoryId === categoryId && e.inWheel);
+  const isMix = categoryId === MIX_ID;
+  const category = isMix ? { id: MIX_ID, ...MIX } : s.categories.find((c) => c.id === categoryId);
+  const catById = new Map(s.categories.map((c) => [c.id, c]));
+  // Mix: every exercise on the wheel, from every group that's on the wheel, kept together by group.
+  const pool = isMix
+    ? s.categories.filter((c) => c.inWheel).flatMap((c) => s.exercises.filter((e) => e.categoryId === c.id && e.inWheel))
+    : s.exercises.filter((e) => e.categoryId === categoryId && e.inWheel);
   const picks = s.picks.filter((id) => pool.some((e) => e.id === id));
+  const groupOf = (categoryIdOfExercise: string) => catById.get(categoryIdOfExercise);
   const target = s.settings.exercisesPerWorkout;
 
   const { resetSpin } = s;
@@ -188,7 +198,13 @@ function ExerciseStage({ categoryId }: { categoryId: string }) {
   }, [category, resetSpin]);
   if (!category) return null;
 
-  const items: WheelItem[] = pool.map((e) => ({ id: e.id, label: e.name, color: category.color }));
+  const items: WheelItem[] = pool.map((e) => {
+    const g = groupOf(e.categoryId);
+    return isMix && g
+      ? { id: e.id, label: e.name, color: g.color, emoji: g.emoji }
+      : { id: e.id, label: e.name, color: category.color };
+  });
+  const groupCount = new Set(pool.map((e) => e.categoryId)).size;
   const left = pool.length - picks.length;
   const done = picks.length >= target || left === 0;
 
@@ -200,7 +216,7 @@ function ExerciseStage({ categoryId }: { categoryId: string }) {
 
   const start = () => {
     if (s.active && !window.confirm(`Replace your ${s.active.categoryName} workout in progress?`)) return;
-    s.startWorkout(category.id, picks, true);
+    s.startWorkout(isMix ? MIX_ID : category.id, picks, true);
     navigate('workout');
   };
 
@@ -214,6 +230,11 @@ function ExerciseStage({ categoryId }: { categoryId: string }) {
           </span>{' '}
           day
         </h1>
+        {isMix && (
+          <p className="muted small">
+            {pool.length} exercises from {groupCount} group{groupCount === 1 ? '' : 's'} on one wheel
+          </p>
+        )}
         <button className="link-btn" onClick={s.resetSpin} disabled={spinning}>
           ← Change type
         </button>
@@ -221,8 +242,8 @@ function ExerciseStage({ categoryId }: { categoryId: string }) {
 
       {pool.length === 0 ? (
         <div className="empty">
-          <p>No exercises for {category.name} are on the wheel yet.</p>
-          <button className="btn primary" onClick={() => navigate(`library/${category.id}`)}>
+          <p>{isMix ? 'No exercises are switched on for spins.' : `No exercises for ${category.name} are on the wheel yet.`}</p>
+          <button className="btn primary" onClick={() => navigate(isMix ? 'library' : `library/${category.id}`)}>
             Add exercises
           </button>
         </div>
@@ -237,6 +258,7 @@ function ExerciseStage({ categoryId }: { categoryId: string }) {
           <Wheel
             ref={wheel}
             size="medium"
+            readout
             items={items}
             disabledIds={picks}
             onSpinStart={() => {
@@ -256,7 +278,7 @@ function ExerciseStage({ categoryId }: { categoryId: string }) {
 
           <div className="spin-actions" aria-live="polite">
             {fresh && !spinning && (
-              <div className="toast pop-in" style={{ '--c': category.color } as React.CSSProperties}>
+              <div className="toast pop-in" style={{ '--c': items.find((it) => it.id === fresh)?.color ?? category.color } as React.CSSProperties}>
                 🎉 {pool.find((e) => e.id === fresh)?.name}
               </div>
             )}
@@ -290,18 +312,22 @@ function ExerciseStage({ categoryId }: { categoryId: string }) {
                 {picks.map((id, i) => {
                   const ex = pool.find((e) => e.id === id)!;
                   const slot = s.picks.indexOf(id);
+                  const g = isMix ? groupOf(ex.categoryId) : undefined;
                   return (
                     <li
                       key={id}
                       className={`${fresh === id ? 'fresh' : ''}${respinIndex === slot && spinning ? ' respinning' : ''}`}
-                      style={{ '--c': category.color } as React.CSSProperties}
+                      style={{ '--c': g?.color ?? category.color } as React.CSSProperties}
                     >
                       <span className="plan-num">{i + 1}</span>
                       <div className="plan-body">
                         <div className="plan-name">
                           {KIND_ICONS[ex.kind]} {ex.name}
                         </div>
-                        <div className="plan-sub">{summarizeExercise(ex, s.settings)}</div>
+                        <div className="plan-sub">
+                          {g && `${g.emoji} ${g.name} · `}
+                          {summarizeExercise(ex, s.settings)}
+                        </div>
                       </div>
                       <button
                         className="icon-btn"

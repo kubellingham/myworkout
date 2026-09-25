@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { useStore } from './store';
+import { MIX_ID, useStore } from './store';
+import { LIBRARY_VERSION, createSeed, seedCount, upgradeLibrary } from './seed';
 
 describe('store', () => {
   beforeEach(() => useStore.getState().resetAll());
@@ -46,5 +47,40 @@ describe('store', () => {
     useStore.getState().importData(json);
     expect(useStore.getState().settings.weightUnit).toBe('lb');
     expect(() => useStore.getState().importData('{"nope":1}')).toThrow();
+  });
+
+  it('starts a Mix workout from exercises across groups', () => {
+    const { exercises } = useStore.getState();
+    const legs = exercises.find((e) => e.name === 'Back Squat')!;
+    const pull = exercises.find((e) => e.name === 'Chin-ups')!;
+    useStore.getState().startWorkout(MIX_ID, [legs.id, pull.id], true);
+    const active = useStore.getState().active!;
+    expect(active.categoryName).toBe('Mix');
+    expect(active.categoryId).toBeNull();
+    expect(active.exercises.map((e) => e.name)).toEqual(['Back Squat', 'Chin-ups']);
+  });
+});
+
+describe('library upgrade', () => {
+  it('ships a big library', () => {
+    expect(seedCount()).toBeGreaterThan(180);
+    const { exercises } = createSeed();
+    expect(new Set(exercises.map((e) => e.name.toLowerCase())).size).toBe(exercises.length);
+  });
+
+  it('adds new exercises to an old library without duplicates or resurrecting deletions', () => {
+    const fresh = createSeed();
+    const v1Names = ['Bench Press', 'Push-ups', 'Pull-ups', 'Back Squat', 'Plank'];
+    const categories = fresh.categories.map((c) => (c.name === 'Pull' ? { ...c, name: 'Back' } : c)); // renamed
+    const old = fresh.exercises.filter((e) => v1Names.includes(e.name));
+    old.push({ ...old[0], id: 'mine', name: 'goblet squat' }); // user already added one of the new ones
+    const upgraded = upgradeLibrary(categories, old, 1);
+    const names = upgraded.map((e) => e.name.toLowerCase());
+    expect(new Set(names).size).toBe(names.length);
+    expect(names).toContain('arnold press');
+    expect(names).toContain('chin-ups'); // matched the renamed group by its emoji
+    expect(names).not.toContain('dips'); // a v1 exercise the user deleted stays deleted
+    expect(upgraded.find((e) => e.name === 'Chin-ups')!.categoryId).toBe(categories.find((c) => c.name === 'Back')!.id);
+    expect(upgradeLibrary(categories, upgraded, LIBRARY_VERSION)).toBe(upgraded);
   });
 });

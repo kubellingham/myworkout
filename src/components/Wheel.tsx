@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import confetti from 'canvas-confetti';
 import { randomInt } from '../lib/utils';
 import { tick, unlockAudio, winSound } from '../lib/feedback';
@@ -21,9 +21,14 @@ interface Props {
   onResult: (item: WheelItem) => void;
   hubLabel?: string;
   size?: 'large' | 'medium';
+  /** Show the name under the pointer above the wheel, updating live while it spins. */
+  readout?: boolean;
 }
 
 const R = 100; // wheel radius in SVG units
+/** Above this many slices the labels can't be read, so only colours (and the readout) are shown. */
+const LABEL_LIMIT = 40;
+const MAX_BULBS = 24;
 const mod = (a: number, n: number) => ((a % n) + n) % n;
 const easeOutQuart = (t: number) => 1 - Math.pow(1 - t, 4);
 const easeInOutSine = (t: number) => -(Math.cos(Math.PI * t) - 1) / 2;
@@ -70,7 +75,7 @@ function fitLabel(label: string, maxLen: number, maxFont: number, minFont: numbe
 }
 
 export const Wheel = forwardRef<WheelHandle, Props>(function Wheel(
-  { items, disabledIds = [], onSpinStart, onResult, hubLabel = 'SPIN', size = 'large' },
+  { items, disabledIds = [], onSpinStart, onResult, hubLabel = 'SPIN', size = 'large', readout = false },
   ref,
 ) {
   const n = items.length;
@@ -79,6 +84,8 @@ export const Wheel = forwardRef<WheelHandle, Props>(function Wheel(
   const rotorRef = useRef<HTMLDivElement>(null);
   const pointerRef = useRef<HTMLDivElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const readoutRef = useRef<HTMLDivElement>(null);
+  const winnerRef = useRef<string | null>(null);
   const rafRef = useRef<number | null>(null);
   const [spinning, setSpinning] = useState(false);
   const [winner, setWinner] = useState<string | null>(null);
@@ -101,6 +108,24 @@ export const Wheel = forwardRef<WheelHandle, Props>(function Wheel(
     if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
   }, []);
 
+  // Written straight to the DOM: it changes up to 60 times a second while spinning.
+  const showReadout = useCallback(
+    (peg: number) => {
+      const el = readoutRef.current;
+      if (!el || n === 0) return;
+      const item = items[mod(peg, n)];
+      el.textContent = `${item.emoji ? `${item.emoji} ` : ''}${item.label}`;
+      el.style.setProperty('--c', item.color);
+      // The winner is usually disabled right after it lands (it's been picked) — still show it as the win.
+      el.classList.toggle('off', disabled.has(item.id) && winnerRef.current !== item.id);
+    },
+    [items, n, disabled],
+  );
+
+  useLayoutEffect(() => {
+    showReadout(Math.floor((-rotRef.current + seg / 2) / seg));
+  }, [showReadout, seg]);
+
   const apply = useCallback(
     (rot: number, dt = 16.7) => {
       rotRef.current = rot;
@@ -111,13 +136,14 @@ export const Wheel = forwardRef<WheelHandle, Props>(function Wheel(
         pegRef.current = peg;
         kickRef.current = 1;
         tick();
+        showReadout(peg);
       }
       kickRef.current *= Math.pow(0.8, dt / 16.7);
       if (pointerRef.current) {
         pointerRef.current.style.transform = `translateX(-50%) rotate(${-dirRef.current * kickRef.current * 24}deg)`;
       }
     },
-    [seg],
+    [seg, showReadout],
   );
 
   const spin = useCallback(
@@ -137,6 +163,8 @@ export const Wheel = forwardRef<WheelHandle, Props>(function Wheel(
       const settle = 420;
 
       dirRef.current = direction;
+      winnerRef.current = null;
+      readoutRef.current?.classList.remove('win');
       setSpinning(true);
       setWinner(null);
       onSpinStart?.();
@@ -166,6 +194,9 @@ export const Wheel = forwardRef<WheelHandle, Props>(function Wheel(
           pegRef.current = Math.floor((-rotRef.current + seg / 2) / seg);
           if (pointerRef.current) pointerRef.current.style.transform = 'translateX(-50%) rotate(0deg)';
           const item = items[winIndex];
+          winnerRef.current = item.id;
+          showReadout(pegRef.current);
+          readoutRef.current?.classList.add('win');
           setSpinning(false);
           setWinner(item.id);
           winSound();
@@ -223,108 +254,118 @@ export const Wheel = forwardRef<WheelHandle, Props>(function Wheel(
     if (Math.abs(v) > 0.25) spin(v > 0 ? 1 : -1, Math.min(1, Math.abs(v) / 1.6));
   };
 
+  const showLabels = n <= LABEL_LIMIT;
+  const strokeWidth = n > 60 ? 0.3 : n > 24 ? 0.7 : 1.2;
+  const bulbStep = Math.ceil(n / MAX_BULBS);
   const hasEmoji = items.some((i) => i.emoji);
   const labelOuter = hasEmoji ? 70 : 91;
   const labelInner = 30;
 
   return (
-    <div className={`wheel wheel-${size}${spinning ? ' is-spinning' : ''}${winner ? ' has-winner' : ''}`} ref={wrapRef}>
-      <div className="wheel-pointer" ref={pointerRef} aria-hidden>
-        <svg viewBox="0 0 40 52">
-          <path d="M20 50 L4 12 A 17 17 0 1 1 36 12 Z" fill="#fff" stroke="#0f1115" strokeWidth="3" />
-          <circle cx="20" cy="16" r="6" fill="#0f1115" />
-        </svg>
-      </div>
-      <div
-        className="wheel-rotor"
-        ref={rotorRef}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-        role="img"
-        aria-label={`Wheel with ${n} options: ${items.map((i) => i.label).join(', ')}`}
-      >
-        <svg viewBox="-112 -112 224 224">
-          <circle r="111" fill="#0b0c10" />
-          <circle r="108" fill="url(#rim)" />
-          <defs>
-            <radialGradient id="rim" cx="50%" cy="40%" r="60%">
-              <stop offset="0%" stopColor="#3a3f4d" />
-              <stop offset="100%" stopColor="#1b1e26" />
-            </radialGradient>
-            <radialGradient id="shine" cx="50%" cy="30%" r="75%">
-              <stop offset="0%" stopColor="#fff" stopOpacity="0.22" />
-              <stop offset="55%" stopColor="#fff" stopOpacity="0" />
-              <stop offset="100%" stopColor="#000" stopOpacity="0.22" />
-            </radialGradient>
-          </defs>
-          {items.map((item, i) => {
-            const shade = shadeIndex(i, n);
-            // A just-picked winner keeps its colour until the next spin, even though it's now excluded.
-            const isDisabled = disabled.has(item.id) && winner !== item.id;
-            const base = item.color;
-            const fill = isDisabled
-              ? shade === 1
-                ? '#2c3039'
-                : '#353a45'
-              : shade === 0
-                ? base
-                : shade === 1
-                  ? mix(base, '#ffffff', 0.28)
-                  : mix(base, '#000000', 0.18);
-            const isWinner = winner === item.id;
-            const maxFont = Math.min(15, ((2 * Math.PI * 58) / n) * 0.55);
-            const { text, font } = fitLabel(item.label, labelOuter - labelInner, maxFont, 6.5);
-            return (
-              <g key={item.id} className={`seg${isWinner ? ' seg-win' : ''}${isDisabled ? ' seg-off' : ''}`}>
-                <path d={segmentPath(n, i)} fill={fill} stroke="#0f1115" strokeWidth="1.2" />
-                <g transform={`rotate(${i * seg})`}>
-                  {item.emoji && (
-                    <text
-                      x={0}
-                      y={-84}
-                      fontSize={Math.min(18, seg * 0.5)}
-                      textAnchor="middle"
-                      dominantBaseline="central"
-                      opacity={isDisabled ? 0.4 : 1}
-                    >
-                      {item.emoji}
-                    </text>
+    <>
+      {readout && <div className="wheel-readout" ref={readoutRef} aria-live="off" />}
+      <div className={`wheel wheel-${size}${spinning ? ' is-spinning' : ''}${winner ? ' has-winner' : ''}`} ref={wrapRef}>
+        <div className="wheel-pointer" ref={pointerRef} aria-hidden>
+          <svg viewBox="0 0 40 52">
+            <path d="M20 50 L4 12 A 17 17 0 1 1 36 12 Z" fill="#fff" stroke="#0f1115" strokeWidth="3" />
+            <circle cx="20" cy="16" r="6" fill="#0f1115" />
+          </svg>
+        </div>
+        <div
+          className="wheel-rotor"
+          ref={rotorRef}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          role="img"
+          aria-label={`Wheel with ${n} options: ${items.map((i) => i.label).join(', ')}`}
+        >
+          <svg viewBox="-112 -112 224 224">
+            <circle r="111" fill="#0b0c10" />
+            <circle r="108" fill="url(#rim)" />
+            <defs>
+              <radialGradient id="rim" cx="50%" cy="40%" r="60%">
+                <stop offset="0%" stopColor="#3a3f4d" />
+                <stop offset="100%" stopColor="#1b1e26" />
+              </radialGradient>
+              <radialGradient id="shine" cx="50%" cy="30%" r="75%">
+                <stop offset="0%" stopColor="#fff" stopOpacity="0.22" />
+                <stop offset="55%" stopColor="#fff" stopOpacity="0" />
+                <stop offset="100%" stopColor="#000" stopOpacity="0.22" />
+              </radialGradient>
+            </defs>
+            {items.map((item, i) => {
+              const shade = shadeIndex(i, n);
+              // A just-picked winner keeps its colour until the next spin, even though it's now excluded.
+              const isDisabled = disabled.has(item.id) && winner !== item.id;
+              const base = item.color;
+              const fill = isDisabled
+                ? shade === 1
+                  ? '#2c3039'
+                  : '#353a45'
+                : shade === 0
+                  ? base
+                  : shade === 1
+                    ? mix(base, '#ffffff', 0.28)
+                    : mix(base, '#000000', 0.18);
+              const isWinner = winner === item.id;
+              const maxFont = Math.min(15, ((2 * Math.PI * 58) / n) * 0.55);
+              const { text, font } = fitLabel(item.label, labelOuter - labelInner, maxFont, 6.5);
+              return (
+                <g key={item.id} className={`seg${isWinner ? ' seg-win' : ''}${isDisabled ? ' seg-off' : ''}`}>
+                  <path d={segmentPath(n, i)} fill={fill} stroke="#0f1115" strokeWidth={strokeWidth} />
+                  {showLabels && (
+                    <g transform={`rotate(${i * seg})`}>
+                      {item.emoji && (
+                        <text
+                          x={0}
+                          y={-84}
+                          fontSize={Math.min(18, seg * 0.5)}
+                          textAnchor="middle"
+                          dominantBaseline="central"
+                          opacity={isDisabled ? 0.4 : 1}
+                        >
+                          {item.emoji}
+                        </text>
+                      )}
+                      <text
+                        transform={`translate(0 ${-labelOuter}) rotate(90)`}
+                        textAnchor="start"
+                        dominantBaseline="central"
+                        fontSize={font}
+                        className="seg-label"
+                        fill={isDisabled ? '#7b8190' : '#12141a'}
+                        textDecoration={isDisabled ? 'line-through' : undefined}
+                      >
+                        {text}
+                      </text>
+                    </g>
                   )}
-                  <text
-                    transform={`translate(0 ${-labelOuter}) rotate(90)`}
-                    textAnchor="start"
-                    dominantBaseline="central"
-                    fontSize={font}
-                    className="seg-label"
-                    fill={isDisabled ? '#7b8190' : '#12141a'}
-                    textDecoration={isDisabled ? 'line-through' : undefined}
-                  >
-                    {text}
-                  </text>
                 </g>
-              </g>
-            );
-          })}
-          <circle r="100" fill="url(#shine)" pointerEvents="none" />
-          {items.map((_, i) => {
-            const [x, y] = polar(104, i * seg + seg / 2);
-            return <circle key={i} className="bulb" cx={x} cy={y} r="2.6" style={{ animationDelay: `${(i % 2) * 0.18}s` }} />;
-          })}
-        </svg>
+              );
+            })}
+            <circle r="100" fill="url(#shine)" pointerEvents="none" />
+            {items.map((_, i) => {
+              if (i % bulbStep !== 0) return null;
+              const [x, y] = polar(104, i * seg + seg / 2);
+              const odd = (i / bulbStep) % 2;
+              return <circle key={i} className="bulb" cx={x} cy={y} r="2.6" style={{ animationDelay: `${odd * 0.18}s` }} />;
+            })}
+          </svg>
+        </div>
+        <div className="wheel-hub-ring" aria-hidden />
+        <button
+          type="button"
+          className="wheel-hub"
+          onClick={() => spin(1, 0.6)}
+          disabled={spinning || available.length === 0}
+          aria-label="Spin the wheel"
+        >
+          {hubLabel}
+        </button>
       </div>
-      <div className="wheel-hub-ring" aria-hidden />
-      <button
-        type="button"
-        className="wheel-hub"
-        onClick={() => spin(1, 0.6)}
-        disabled={spinning || available.length === 0}
-        aria-label="Spin the wheel"
-      >
-        {hubLabel}
-      </button>
-    </div>
+    </>
   );
 });
 

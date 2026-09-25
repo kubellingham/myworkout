@@ -8,6 +8,8 @@ A mobile-first workout app for people who don't plan their workouts. Spin a priz
 - **Two-step spin.** The first wheel picks the workout type (Push, Pull, Legs, Core, Cardio,
   Full Body, Mobility). The second wheel, made of that type's exercises, spins once per exercise.
   Picked exercises grey out so they can't repeat. You can re-spin (⟳) any single exercise in the plan.
+- **Mix mode.** Tap "🎲 Mix it up" to put every exercise that's switched on for spins, from every
+  group, on one wheel. A live readout above the wheel shows each exercise as it passes the pointer.
 - **Wheel animation.** Tap SPIN or flick the wheel with your finger. It has an ease-out
   spin, a flapper that clicks on every peg, blinking bulbs, a winner highlight and confetti.
   Android phones also vibrate.
@@ -31,8 +33,9 @@ A mobile-first workout app for people who don't plan their workouts. Spin a priz
   - *Records:* your latest PRs and your best for each exercise.
   - *Body:* weigh-ins with a 7-day average trend chart, BMI (from your height), and an optional
     waist measurement with the waist-to-height guideline.
-- **Library.** Add or edit workout types (name, emoji, colour) and exercises, and toggle anything
-  on or off the wheel.
+- **Library.** About 200 built-in exercises across 7 groups: barbell, dumbbell, cable, machine,
+  kettlebell, bodyweight, cardio intervals and mobility. You can search them, add or edit workout
+  types (name, emoji, colour) and exercises, and switch anything, or a whole group, on or off the wheel.
 - **Settings.** Exercises per workout, weekly goal, rest timer, height, rest yesterday's type, sound,
   vibration, kg/lb, km/mi.
 - **Your data stays on your phone** (localStorage). Use Library → Backup to export and import a JSON file.

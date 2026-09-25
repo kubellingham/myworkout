@@ -16,53 +16,109 @@ export function LibraryScreen({ categoryId }: { categoryId?: string }) {
 }
 
 function LibraryHome() {
-  const { categories, exercises, updateCategory } = useStore(
-    useShallow((s) => ({ categories: s.categories, exercises: s.exercises, updateCategory: s.updateCategory })),
+  const { categories, exercises, settings, updateCategory, updateExercise } = useStore(
+    useShallow((s) => ({
+      categories: s.categories,
+      exercises: s.exercises,
+      settings: s.settings,
+      updateCategory: s.updateCategory,
+      updateExercise: s.updateExercise,
+    })),
   );
   const [adding, setAdding] = useState(false);
+  const [q, setQ] = useState('');
+  const [editing, setEditing] = useState<Exercise | null>(null);
+  const query = q.trim().toLowerCase();
+  const catById = new Map(categories.map((c) => [c.id, c]));
+  const results = query ? exercises.filter((e) => e.name.toLowerCase().includes(query)) : [];
+  const onWheelTotal = exercises.filter((e) => e.inWheel && catById.get(e.categoryId)?.inWheel).length;
+
   return (
     <div className="screen">
       <header className="page-head">
         <h1>Library</h1>
-        <p className="muted">Everything on your wheels. Toggle items off to keep them out of spins.</p>
+        <p className="muted">
+          {exercises.length} exercises, {onWheelTotal} of them in spins. Toggle anything off to keep it out.
+        </p>
       </header>
 
-      <div className="section-title">Workout types</div>
-      <div className="list">
-        {categories.map((c) => {
-          const count = exercises.filter((e) => e.categoryId === c.id).length;
-          const onWheel = exercises.filter((e) => e.categoryId === c.id && e.inWheel).length;
-          return (
-            <div key={c.id} className="list-row" onClick={() => navigate(`library/${c.id}`)} role="button" tabIndex={0}>
-              <span className="swatch" style={{ background: c.color }}>
-                {c.emoji}
-              </span>
-              <span className="lr-body">
-                <span className="lr-title">{c.name}</span>
-                <span className="lr-sub">
-                  {count} exercises{onWheel !== count && ` · ${onWheel} on wheel`}
-                </span>
-              </span>
-              <Switch checked={c.inWheel} onChange={(v) => updateCategory(c.id, { inWheel: v })} label={`${c.name} on wheel`} />
-              <span className="chev">›</span>
-            </div>
-          );
-        })}
-      </div>
-      <button className="btn ghost wide" onClick={() => setAdding(true)}>
-        + Add workout type
-      </button>
+      <input
+        className="text-input search"
+        type="search"
+        placeholder={`🔍 Search ${exercises.length} exercises…`}
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+      />
 
-      <SettingsSection />
+      {query ? (
+        <div className="list">
+          {results.map((e) => {
+            const c = catById.get(e.categoryId);
+            return (
+              <div key={e.id} className="list-row" onClick={() => setEditing(e)} role="button" tabIndex={0}>
+                <span className="swatch small" style={{ background: c?.color }}>
+                  {c?.emoji}
+                </span>
+                <span className="lr-body">
+                  <span className="lr-title">{e.name}</span>
+                  <span className="lr-sub">
+                    {c?.name} · {summarizeExercise(e, settings)}
+                  </span>
+                </span>
+                <Switch checked={e.inWheel} onChange={(v) => updateExercise(e.id, { inWheel: v })} label={`${e.name} on wheel`} />
+              </div>
+            );
+          })}
+          {results.length === 0 && <p className="muted pad">No exercise matches “{q.trim()}”.</p>}
+        </div>
+      ) : (
+        <>
+          <div className="section-title">Workout types</div>
+          <div className="list">
+            {categories.map((c) => {
+              const count = exercises.filter((e) => e.categoryId === c.id).length;
+              const onWheel = exercises.filter((e) => e.categoryId === c.id && e.inWheel).length;
+              return (
+                <div key={c.id} className="list-row" onClick={() => navigate(`library/${c.id}`)} role="button" tabIndex={0}>
+                  <span className="swatch" style={{ background: c.color }}>
+                    {c.emoji}
+                  </span>
+                  <span className="lr-body">
+                    <span className="lr-title">{c.name}</span>
+                    <span className="lr-sub">
+                      {count} exercises · {onWheel === count ? 'all' : onWheel} on the wheel
+                    </span>
+                  </span>
+                  <Switch checked={c.inWheel} onChange={(v) => updateCategory(c.id, { inWheel: v })} label={`${c.name} on wheel`} />
+                  <span className="chev">›</span>
+                </div>
+              );
+            })}
+          </div>
+          <button className="btn ghost wide" onClick={() => setAdding(true)}>
+            + Add workout type
+          </button>
+
+          <SettingsSection />
+        </>
+      )}
 
       <CategorySheet open={adding} onClose={() => setAdding(false)} />
+      {editing && (
+        <ExerciseSheet open exercise={editing} categoryId={editing.categoryId} onClose={() => setEditing(null)} />
+      )}
     </div>
   );
 }
 
 function CategoryPage({ category }: { category: Category }) {
-  const { exercises, settings, updateExercise } = useStore(
-    useShallow((s) => ({ exercises: s.exercises, settings: s.settings, updateExercise: s.updateExercise })),
+  const { exercises, settings, updateExercise, setExercisesInWheel } = useStore(
+    useShallow((s) => ({
+      exercises: s.exercises,
+      settings: s.settings,
+      updateExercise: s.updateExercise,
+      setExercisesInWheel: s.setExercisesInWheel,
+    })),
   );
   const [editing, setEditing] = useState<Exercise | 'new' | null>(null);
   const [editCat, setEditCat] = useState(false);
@@ -83,6 +139,18 @@ function CategoryPage({ category }: { category: Category }) {
           </button>
         </div>
       </header>
+
+      <div className="bulk-row">
+        <span className="muted small">
+          {list.filter((e) => e.inWheel).length} of {list.length} on the wheel
+        </span>
+        <button className="btn ghost small" onClick={() => setExercisesInWheel(list.map((e) => e.id), true)}>
+          All on
+        </button>
+        <button className="btn ghost small" onClick={() => setExercisesInWheel(list.map((e) => e.id), false)}>
+          All off
+        </button>
+      </div>
 
       <div className="list">
         {list.map((e) => (
